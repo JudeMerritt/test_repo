@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Live Fleet Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+        #map { height: 100%; width: 100%; display: none; }
+        
+        /* Secure Login Shield Layout */
+        #login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #111; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 9999;
+            font-family: sans-serif; color: white;
+        }
+        .login-box { background: #222; padding: 30px; border-radius: 8px; border: 1px solid #333; text-align: center; }
+        input[type="password"] { padding: 10px; width: 200px; border: none; border-radius: 4px; margin-bottom: 10px; text-align: center; }
+        button { padding: 10px 20px; background: #2ecc71; border: none; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        
+        #telemetry {
+            position: absolute; top: 20px; left: 20px; background: rgba(255,255,255,0.95);
+            padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 1000; font-family: sans-serif; display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="login-overlay">
+        <div class="login-box">
+            <h2>Fleet Tracking Terminal</h2>
+            <p>Enter password to view live assets:</p>
+            <input type="password" id="txt-pass" placeholder="Password"><br>
+            <button onclick="checkPassword()">Log In</button>
+            <p id="err-msg" style="color: #e74c3c; font-size: 13px;"></p>
+        </div>
+    </div>
+
+    <div id="telemetry">
+        <h4 style="margin:0 0 5px 0;">Asset: Active Tracker</h4>
+        <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lat: <span id="lbl-lat">...</span></p>
+        <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lon: <span id="lbl-lon">...</span></p>
+    </div>
+    <div id="map"></div>
+
+    <script>
+        const MASTER_PASSWORD = "ChangeMe123"; // Set your custom access password here
+        let map, trackerMarker = null;
+
+        function checkPassword() {
+            const entered = document.getElementById('txt-pass').value;
+            if (entered === MASTER_PASSWORD) {
+                document.getElementById('login-overlay').style.display = 'none';
+                document.getElementById('map').style.display = 'block';
+                document.getElementById('telemetry').style.display = 'block';
+                initMap();
+                setInterval(fetchLocation, 5000);
+                fetchLocation();
+            } else {
+                document.getElementById('err-msg').innerText = "Invalid Access Key Code.";
+            }
+        }
+
+        function initMap() {
+            map = L.map('map').setView([0, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        async function fetchLocation() {
+            try {
+                // Read directly from your custom Hookdeck event stream source ID
+                const res = await fetch('https://api.hookdeck.com/2023-01-01/requests?source_id=src_w6wx31bnagex4n&per_page=1');
+                const data = await res.json();
+                
+                if (data.models && data.models.length > 0) {
+                    const payload = JSON.parse(data.models[0].body);
+                    const lat = payload.latitude;
+                    const lon = payload.longitude;
+
+                    document.getElementById('lbl-lat').innerText = lat.toFixed(6);
+                    document.getElementById('lbl-lon').innerText = lon.toFixed(6);
+
+                    const pos = [lat, lon];
+                    if (!trackerMarker) {
+                        trackerMarker = L.marker(pos).addTo(map);
+                        map.setView(pos, 16);
+                    } else {
+                        trackerMarker.setLatLng(pos);
+                        map.panTo(pos);
+                    }
+                }
+            } catch (err) {
+                console.error("Pipeline Sync Error:", err);
+            }
+        }
+    </script>
+</body>
+</html>
