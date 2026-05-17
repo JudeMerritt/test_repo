@@ -78,27 +78,25 @@
 
         async function fetchLocation() {
             try {
-                // Routing the request through a public CORS proxy completely bypasses the browser block
-                const proxyUrl = "https://cors-anywhere.herokuapp.com/";
-                const targetUrl = `https://api.hookdeck.com/share/connections/${CONNECTION_ID}/events?per_page=1`;
-                
-                const res = await fetch(proxyUrl + targetUrl, {
+                // By hitting Hookdeck's raw console-view data array, we bypass CORS natively without proxies
+                const sourceId = "hkouwhyxdodvn5"; 
+                const res = await fetch(`https://console.hookdeck.com/api/sources/${sourceId}/requests?per_page=1`, {
                     method: 'GET',
                     headers: {
-                        'Accept': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest' // Required by the proxy
+                        'Accept': 'application/json'
                     }
                 });
                 
                 if (!res.ok) {
-                    throw new Error(`Proxy lookup responded with status ${res.status}`);
+                    throw new Error(`Hookdeck console stream responded with status ${res.status}`);
                 }
 
                 const data = await res.json();
                 
+                // Navigate the direct raw request array schema
                 if (data && data.models && data.models.length > 0) {
-                    const latestEvent = data.models[0];
-                    let payload = latestEvent.request.body;
+                    const latestRequest = data.models[0];
+                    let payload = latestRequest.body;
                     
                     if (typeof payload === 'string') {
                         payload = JSON.parse(payload);
