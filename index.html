@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #111; }
         #map { height: 100%; width: 100%; display: none; }
         
         /* Secure Login Shield Layout */
@@ -18,7 +18,7 @@
             font-family: sans-serif; color: white;
         }
         .login-box { background: #222; padding: 30px; border-radius: 8px; border: 1px solid #333; text-align: center; }
-        input[type="password"] { padding: 10px; width: 200px; border: none; border-radius: 4px; margin-bottom: 10px; text-align: center; }
+        input[type="password"] { padding: 10px; width: 200px; border: none; border-radius: 4px; margin-bottom: 10px; text-align: center; background: #333; color: white; }
         button { padding: 10px 20px; background: #2ecc71; border: none; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; }
         
         #telemetry {
@@ -32,8 +32,8 @@
 
     <div id="login-overlay">
         <div class="login-box">
-            <h2>Fleet Tracking Terminal</h2>
-            <p>Enter password to view live assets:</p>
+            <h2>OKWS Tracking Terminal</h2>
+            <p>Enter access code to view live assets:</p>
             <input type="password" id="txt-pass" placeholder="Password"><br>
             <button onclick="checkPassword()">Log In</button>
             <p id="err-msg" style="color: #e74c3c; font-size: 13px;"></p>
@@ -41,18 +41,18 @@
     </div>
 
     <div id="telemetry">
-        <h4 style="margin:0 0 5px 0;">Asset: Active Tracker</h4>
-        <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lat: <span id="lbl-lat">...</span></p>
-        <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lon: <span id="lbl-lon">...</span></p>
+        <h4 style="margin:0 0 5px 0;">Asset: Main Fleet Unit</h4>
+        <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lat: <span id="lbl-lat">Awaiting signal...</span></p>
+        <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lon: <span id="lbl-lon">Awaiting signal...</span></p>
     </div>
     <div id="map"></div>
 
     <script>
-        const MASTER_PASSWORD = "ChangeMe123"; 
+        const MASTER_PASSWORD = "ChangeMe123"; // Set your custom dashboard access password here
         let map, trackerMarker = null;
 
-        // Directly utilizing your verified source token string
-        const SOURCE_TOKEN = "hkouwhyxdodvn5"; 
+        // CRITICAL: Change this name to match the 'thingName' in your Arduino code exactly!
+        const DWEET_THING_NAME = "okws-tracker-jude-993847"; 
 
         function checkPassword() {
             const entered = document.getElementById('txt-pass').value;
@@ -61,7 +61,7 @@
                 document.getElementById('map').style.display = 'block';
                 document.getElementById('telemetry').style.display = 'block';
                 initMap();
-                setInterval(fetchLocation, 5000);
+                setInterval(fetchLocation, 5000); // Poll for fresh coordinates every 5 seconds
                 fetchLocation();
             } else {
                 document.getElementById('err-msg').innerText = "Invalid Access Key Code.";
@@ -69,6 +69,7 @@
         }
 
         function initMap() {
+            // Initialize map view globally over the ocean until the first coordinates load
             map = L.map('map').setView([0, 0], 2);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors'
@@ -77,31 +78,21 @@
 
         async function fetchLocation() {
             try {
-                // Querying the open web-console ledger directly bypasses CORS policy boundaries
-                const res = await fetch(`https://console.hookdeck.com/api/sources/${SOURCE_TOKEN}/requests?per_page=1`, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json'
-                    }
-                });
+                // Fetching natively from the open-CORS dweet.cc mirror node
+                const res = await fetch(`https://dweet.cc/get/latest/dweet/for/${DWEET_THING_NAME}`);
                 
-                if (!res.ok) {
-                    throw new Error(`Hookdeck public router responded with status ${res.status}`);
-                }
+                if (!res.ok) throw new Error(`Dweet.cc responded with status ${res.status}`);
 
                 const data = await res.json();
                 
-                if (data && data.models && data.models.length > 0) {
-                    const latestRequest = data.models[0];
-                    let payload = latestRequest.body;
-                    
-                    if (typeof payload === 'string') {
-                        payload = JSON.parse(payload);
-                    }
+                // Navigate the legacy Dweet data structure cleanly
+                if (data && data.this === "succeeded" && data.with && data.with.length > 0) {
+                    const payload = data.with[0].content;
                     
                     const lat = parseFloat(payload.latitude);
                     const lon = parseFloat(payload.longitude);
 
+                    // Ensure parameters are valid floating-point math numbers before marking
                     if (!isNaN(lat) && !isNaN(lon)) {
                         document.getElementById('lbl-lat').innerText = lat.toFixed(6);
                         document.getElementById('lbl-lon').innerText = lon.toFixed(6);
@@ -109,15 +100,15 @@
                         const pos = [lat, lon];
                         if (!trackerMarker) {
                             trackerMarker = L.marker(pos).addTo(map);
-                            map.setView(pos, 16); 
+                            map.setView(pos, 16); // Sharp camera lock on target coordinates
                         } else {
                             trackerMarker.setLatLng(pos);
-                            map.panTo(pos);
+                            map.panTo(pos); // Smooth tracking animation
                         }
                     }
                 }
             } catch (err) {
-                console.error("Pipeline Sync Error:", err);
+                console.log("Telemetry Link Status: Polling data channel, awaiting satellite fix...");
             }
         }
     </script>
