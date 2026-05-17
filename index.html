@@ -51,6 +51,9 @@
         const MASTER_PASSWORD = "ChangeMe123"; // Set your custom access password here
         let map, trackerMarker = null;
 
+        // Linked to your live account channel architecture
+        const CONNECTION_ID = "web_5WWsN0AOBweG"; 
+
         function checkPassword() {
             const entered = document.getElementById('txt-pass').value;
             if (entered === MASTER_PASSWORD) {
@@ -66,6 +69,7 @@
         }
 
         function initMap() {
+            // Default initialization centered globally
             map = L.map('map').setView([0, 0], 2);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors'
@@ -74,25 +78,44 @@
 
         async function fetchLocation() {
             try {
-                // Read directly from your custom Hookdeck event stream source ID
-                const res = await fetch('https://api.hookdeck.com/2023-01-01/requests?source_id=src_w6wx31bnagex4n&per_page=1');
+                // Reaching out to your specific connection registry endpoint stream
+                const res = await fetch(`https://api.hookdeck.com/2023-01-01/connections/${CONNECTION_ID}/events?per_page=1`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!res.ok) {
+                    throw new Error(`Hookdeck API responded with status ${res.status}`);
+                }
+
                 const data = await res.json();
                 
-                if (data.models && data.models.length > 0) {
-                    const payload = JSON.parse(data.models[0].body);
-                    const lat = payload.latitude;
-                    const lon = payload.longitude;
+                if (data && data.models && data.models.length > 0) {
+                    const latestEvent = data.models[0];
+                    
+                    // Extracts payload nested inside the managed gateway connection schema
+                    let payload = latestEvent.request.body;
+                    if (typeof payload === 'string') {
+                        payload = JSON.parse(payload);
+                    }
+                    
+                    const lat = parseFloat(payload.latitude);
+                    const lon = parseFloat(payload.longitude);
 
-                    document.getElementById('lbl-lat').innerText = lat.toFixed(6);
-                    document.getElementById('lbl-lon').innerText = lon.toFixed(6);
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                        document.getElementById('lbl-lat').innerText = lat.toFixed(6);
+                        document.getElementById('lbl-lon').innerText = lon.toFixed(6);
 
-                    const pos = [lat, lon];
-                    if (!trackerMarker) {
-                        trackerMarker = L.marker(pos).addTo(map);
-                        map.setView(pos, 16);
-                    } else {
-                        trackerMarker.setLatLng(pos);
-                        map.panTo(pos);
+                        const pos = [lat, lon];
+                        if (!trackerMarker) {
+                            trackerMarker = L.marker(pos).addTo(map);
+                            map.setView(pos, 16); // Focus directly on target coordinate
+                        } else {
+                            trackerMarker.setLatLng(pos);
+                            map.panTo(pos);
+                        }
                     }
                 }
             } catch (err) {
