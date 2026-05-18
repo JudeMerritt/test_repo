@@ -51,7 +51,8 @@
         const MASTER_PASSWORD = "ChangeMe123"; 
         let map, trackerMarker = null;
 
-        // ThingSpeak Read Configuration
+        const THINGSPEAK_CHANNEL_ID = "3386987"; 
+
         const READ_API_KEY = "5NBKQLUZFS2TV33Z";
 
         function checkPassword() {
@@ -61,7 +62,7 @@
                 document.getElementById('map').style.display = 'block';
                 document.getElementById('telemetry').style.display = 'block';
                 initMap();
-                setInterval(fetchLocation, 15000); // Poll every 15 seconds to match ThingSpeak rate limits
+                setInterval(fetchLocation, 15000); 
                 fetchLocation();
             } else {
                 document.getElementById('err-msg').innerText = "Invalid Access Key Code.";
@@ -77,8 +78,8 @@
 
         async function fetchLocation() {
             try {
-                // Fetch the single latest entry from your channel feed using the Read API Key
-                const res = await fetch(`https://api.thingspeak.com/channels/public/feeds.json?api_key=${READ_API_KEY}&results=1`);
+                // FIXED: The path now inserts your numeric Channel ID properly into the REST endpoint
+                const res = await fetch(`https://api.thingspeak.com/channels/${THINGSPEAK_CHANNEL_ID}/feeds.json?api_key=${READ_API_KEY}&results=1`);
                 
                 if (!res.ok) throw new Error(`ThingSpeak response error: ${res.status}`);
 
@@ -87,7 +88,6 @@
                 if (data && data.feeds && data.feeds.length > 0) {
                     const latestFeed = data.feeds[0];
                     
-                    // Parse values from Field 1 and Field 2
                     const lat = parseFloat(latestFeed.field1);
                     const lon = parseFloat(latestFeed.field2);
 
@@ -98,10 +98,10 @@
                         const pos = [lat, lon];
                         if (!trackerMarker) {
                             trackerMarker = L.marker(pos).addTo(map);
-                            map.setView(pos, 16); // Snap camera to active coordinates
+                            map.setView(pos, 16); 
                         } else {
                             trackerMarker.setLatLng(pos);
-                            map.panTo(pos); // Smooth move animation
+                            map.panTo(pos); 
                         }
                     }
                 }
