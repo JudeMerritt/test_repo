@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Live Fleet Tracker</title>
+    <title>OKWS Secure Live Fleet Tracker</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #111; }
         #map { height: 100%; width: 100%; display: none; }
         
-        /* Secure Login Shield Layout */
+        /* Secure Login Layout */
         #login-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #111; display: flex; flex-direction: column;
@@ -41,18 +41,18 @@
     </div>
 
     <div id="telemetry">
-        <h4 style="margin:0 0 5px 0;">Asset: Main Fleet Unit</h4>
+        <h4 style="margin:0 0 5px 0;">Asset: Active Tracker</h4>
         <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lat: <span id="lbl-lat">Awaiting signal...</span></p>
         <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lon: <span id="lbl-lon">Awaiting signal...</span></p>
     </div>
     <div id="map"></div>
 
     <script>
-        const MASTER_PASSWORD = "ChangeMe123"; // Set your custom dashboard access password here
+        const MASTER_PASSWORD = "ChangeMe123"; 
         let map, trackerMarker = null;
 
-        // CRITICAL: Change this name to match the 'thingName' in your Arduino code exactly!
-        const DWEET_THING_NAME = "okws-tracker-jude-993847"; 
+        // ThingSpeak Read Configuration
+        const READ_API_KEY = "5NBKQLUZFS2TV33Z";
 
         function checkPassword() {
             const entered = document.getElementById('txt-pass').value;
@@ -61,7 +61,7 @@
                 document.getElementById('map').style.display = 'block';
                 document.getElementById('telemetry').style.display = 'block';
                 initMap();
-                setInterval(fetchLocation, 5000); // Poll for fresh coordinates every 5 seconds
+                setInterval(fetchLocation, 15000); // Poll every 15 seconds to match ThingSpeak rate limits
                 fetchLocation();
             } else {
                 document.getElementById('err-msg').innerText = "Invalid Access Key Code.";
@@ -69,7 +69,6 @@
         }
 
         function initMap() {
-            // Initialize map view globally over the ocean until the first coordinates load
             map = L.map('map').setView([0, 0], 2);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors'
@@ -78,21 +77,20 @@
 
         async function fetchLocation() {
             try {
-                // Fetching natively from the open-CORS dweet.cc mirror node
-                const res = await fetch(`https://dweet.cc/get/latest/dweet/for/${DWEET_THING_NAME}`);
+                // Fetch the single latest entry from your channel feed using the Read API Key
+                const res = await fetch(`https://api.thingspeak.com/channels/public/feeds.json?api_key=${READ_API_KEY}&results=1`);
                 
-                if (!res.ok) throw new Error(`Dweet.cc responded with status ${res.status}`);
+                if (!res.ok) throw new Error(`ThingSpeak response error: ${res.status}`);
 
                 const data = await res.json();
                 
-                // Navigate the legacy Dweet data structure cleanly
-                if (data && data.this === "succeeded" && data.with && data.with.length > 0) {
-                    const payload = data.with[0].content;
+                if (data && data.feeds && data.feeds.length > 0) {
+                    const latestFeed = data.feeds[0];
                     
-                    const lat = parseFloat(payload.latitude);
-                    const lon = parseFloat(payload.longitude);
+                    // Parse values from Field 1 and Field 2
+                    const lat = parseFloat(latestFeed.field1);
+                    const lon = parseFloat(latestFeed.field2);
 
-                    // Ensure parameters are valid floating-point math numbers before marking
                     if (!isNaN(lat) && !isNaN(lon)) {
                         document.getElementById('lbl-lat').innerText = lat.toFixed(6);
                         document.getElementById('lbl-lon').innerText = lon.toFixed(6);
@@ -100,15 +98,15 @@
                         const pos = [lat, lon];
                         if (!trackerMarker) {
                             trackerMarker = L.marker(pos).addTo(map);
-                            map.setView(pos, 16); // Sharp camera lock on target coordinates
+                            map.setView(pos, 16); // Snap camera to active coordinates
                         } else {
                             trackerMarker.setLatLng(pos);
-                            map.panTo(pos); // Smooth tracking animation
+                            map.panTo(pos); // Smooth move animation
                         }
                     }
                 }
             } catch (err) {
-                console.log("Telemetry Link Status: Polling data channel, awaiting satellite fix...");
+                console.log("Telemetry Link Status: Polling data feed channels...");
             }
         }
     </script>
