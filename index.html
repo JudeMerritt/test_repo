@@ -48,7 +48,7 @@
     <div id="map"></div>
 
     <script>
-        const MASTER_PASSWORD = "ChangeMe123"; 
+        const MASTER_PASSWORD = "12345"; 
         let map, trackerMarker = null;
 
         const THINGSPEAK_CHANNEL_ID = "3386987"; 
@@ -78,7 +78,6 @@
 
         async function fetchLocation() {
             try {
-                // FIXED: The path now inserts your numeric Channel ID properly into the REST endpoint
                 const res = await fetch(`https://api.thingspeak.com/channels/${THINGSPEAK_CHANNEL_ID}/feeds.json?api_key=${READ_API_KEY}&results=1`);
                 
                 if (!res.ok) throw new Error(`ThingSpeak response error: ${res.status}`);
