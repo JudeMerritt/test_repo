@@ -102,7 +102,7 @@
             drawnItems = new L.FeatureGroup();
             map.addLayer(drawnItems);
 
-            // Configure Drawing Toolbar Options (Limiting strictly to Polygons/Shapes)
+            // Configure Drawing Toolbar Options
             const drawControl = new L.Control.Draw({
                 edit: { featureGroup: drawnItems, remove: true },
                 draw: {
@@ -112,33 +112,80 @@
             });
             map.addControl(drawControl);
 
+            // 1. LIFECYCLE HOOK: Load saved geofence data immediately from localStorage on startup
+            loadSavedGeofence();
+
             // Map Drawing Event Hook listeners
             map.on(L.Draw.Event.CREATED, function (e) {
-                // Wipe any old geofence vectors if user draws a new one
                 drawnItems.clearLayers();
                 
                 const layer = e.layer;
                 drawnItems.addLayer(layer);
                 geofencePolygon = layer; 
                 
+                // 2. LIFECYCLE HOOK: Save the new shape vectors to browser memory
+                saveGeofence(layer.getLatLngs());
+                
                 document.getElementById('lbl-fence-status').innerText = "Fence: Armed";
                 document.getElementById('lbl-fence-status').style.color = "#2980b9";
                 
-                // Immediately check status if location matrix already exists
                 if (currentPos) checkGeofence(currentPos[0], currentPos[1]);
             });
 
+            // Triggered if shapes are edited/modified via the edit tool
+            map.on(L.Draw.Event.EDITED, function (e) {
+                if (geofencePolygon) {
+                    saveGeofence(geofencePolygon.getLatLngs());
+                    if (currentPos) checkGeofence(currentPos[0], currentPos[1]);
+                }
+            });
+
+            // Triggered when clear/delete button is targeted
             map.on(L.Draw.Event.DELETED, function () {
                 geofencePolygon = null;
+                // 3. LIFECYCLE HOOK: Drop values from browser database
+                localStorage.removeItem('okws_geofence_coords');
+                
                 document.getElementById('lbl-fence-status').innerText = "Fence: Undefined";
                 document.getElementById('lbl-fence-status').style.color = "#7f8c8d";
                 dismissAlarm();
             });
         }
 
+        // Serializer to pack LatLng objects smoothly into string matrices
+        function saveGeofence(latlngs) {
+            // Leaflet handles polygons with multi-dimensional arrays; we map them safely
+            const rawCoordinates = latlngs[0].map(point => ({ lat: point.lat, lng: point.lng }));
+            localStorage.setItem('okws_geofence_coords', JSON.stringify(rawCoordinates));
+        }
+
+        // Parser to pull from browser storage space and construct Leaflet assets on recovery
+        function loadSavedGeofence() {
+            const savedData = localStorage.getItem('okws_geofence_coords');
+            if (savedData) {
+                try {
+                    const parsedCoords = JSON.parse(savedData);
+                    
+                    // Rebuild the polygon element back onto the canvas layers
+                    const layer = L.polygon(parsedCoords, { color: '#3388ff', weight: 4 });
+                    drawnItems.addLayer(layer);
+                    geofencePolygon = layer;
+
+                    document.getElementById('lbl-fence-status').innerText = "Fence: Restored";
+                    document.getElementById('lbl-fence-status').style.color = "#27ae60";
+                } catch (e) {
+                    console.error("Failed to parse saved localStorage geofence metrics:", e);
+                }
+            }
+        }
+
         // Ray-Casting Polygon Containment Math Algorithm
         function isPointInPolygon(lat, lon, polygon) {
-            const latlngs = polygon.getLatLngs()[0];
+            // Handle differences between freshly drawn polygons vs programmatically generated layers
+            let latlngs = polygon.getLatLngs();
+            if (latlngs.length === 1 && Array.isArray(latlngs[0])) {
+                latlngs = latlngs[0];
+            }
             let inside = false;
             
             for (let i = 0, j = latlngs.length - 1; i < latlngs.length; j = i++) {
@@ -210,11 +257,9 @@
                             trackerMarker.setLatLng(currentPos);
                         }
 
-                        // Run containment evaluation routine against the shape array parameters
                         checkGeofence(lat, lon);
 
                     } else {
-                        // Data is stale -> Wipe pin off map canvas cleanly
                         if (trackerMarker && map.hasLayer(trackerMarker)) {
                             map.removeLayer(trackerMarker);
                         }
