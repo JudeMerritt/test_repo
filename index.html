@@ -41,9 +41,10 @@
     </div>
 
     <div id="telemetry">
-        <h4 style="margin:0 0 5px 0;">Asset: Active Tracker</h4>
+        <h4 id="telemetry-status" style="margin:0 0 5px 0; color: #27ae60;">Asset: Active Tracker</h4>
         <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lat: <span id="lbl-lat">Awaiting signal...</span></p>
         <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lon: <span id="lbl-lon">Awaiting signal...</span></p>
+        <p style="margin:5px 0 0 0; font-size:10px; color:#7f8c8d; font-family:sans-serif;">Last Ping: <span id="lbl-time">...</span></p>
     </div>
     <div id="map"></div>
 
@@ -52,7 +53,6 @@
         let map, trackerMarker = null;
 
         const THINGSPEAK_CHANNEL_ID = "3386987"; 
-
         const READ_API_KEY = "5NBKQLUZFS2TV33Z";
 
         function checkPassword() {
@@ -89,19 +89,46 @@
                     
                     const lat = parseFloat(latestFeed.field1);
                     const lon = parseFloat(latestFeed.field2);
+                    
+                    // 1. Parse packet timestamp and compare against current execution time
+                    const timestamp = new Date(latestFeed.created_at);
+                    const currentTime = new Date();
+                    const ageInSeconds = Math.floor((currentTime - timestamp) / 1000);
 
-                    if (!isNaN(lat) && !isNaN(lon)) {
+                    console.log(`Telemetry data age: ${ageInSeconds} seconds`);
+
+                    // 2. Evaluate 1-minute expiration logic guard
+                    if (ageInSeconds < 60 && !isNaN(lat) && !isNaN(lon)) {
+                        // Data is fresh -> Render or update marker
                         document.getElementById('lbl-lat').innerText = lat.toFixed(6);
                         document.getElementById('lbl-lon').innerText = lon.toFixed(6);
+                        document.getElementById('lbl-time').innerText = timestamp.toLocaleTimeString();
+                        document.getElementById('telemetry-status').innerText = "Asset: Active Tracker";
+                        document.getElementById('telemetry-status').style.color = "#27ae60";
 
                         const pos = [lat, lon];
                         if (!trackerMarker) {
                             trackerMarker = L.marker(pos).addTo(map);
                             map.setView(pos, 16); 
                         } else {
+                            // If the marker was previously purged, re-append it back onto the view canvas
+                            if (!map.hasLayer(trackerMarker)) {
+                                trackerMarker.addTo(map);
+                            }
                             trackerMarker.setLatLng(pos);
                             map.panTo(pos); 
                         }
+                    } else {
+                        // Data is stale or malformed -> Wipe pin off map cleanly
+                        if (trackerMarker && map.hasLayer(trackerMarker)) {
+                            map.removeLayer(trackerMarker);
+                        }
+                        
+                        document.getElementById('lbl-lat').innerText = "Offline";
+                        document.getElementById('lbl-lon').innerText = "Offline";
+                        document.getElementById('lbl-time').innerText = timestamp.toLocaleTimeString() + " (Stale)";
+                        document.getElementById('telemetry-status').innerText = "Asset: Signal Lost";
+                        document.getElementById('telemetry-status').style.color = "#e74c3c";
                     }
                 }
             } catch (err) {
