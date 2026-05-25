@@ -3,9 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OKWS Secure Live Fleet Tracker</title>
+    <title>OKWS Secure Live Fleet Tracker & Geofence</title>
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    
     <style>
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #111; }
         #map { height: 100%; width: 100%; display: none; }
@@ -26,9 +31,21 @@
             padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             z-index: 1000; font-family: sans-serif; display: none;
         }
+
+        /* Geofence Breach Banner Notification */
+        #alarm-banner {
+            position: fixed; top: -100px; left: 50%; transform: translateX(-50%);
+            width: 80%; max-width: 500px; background: #e74c3c; color: white;
+            padding: 15px 20px; border-radius: 8px; text-align: center;
+            font-family: sans-serif; font-weight: bold; font-size: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); z-index: 10000;
+            transition: top 0.5s ease-in-out;
+        }
     </style>
 </head>
 <body>
+
+    <div id="alarm-banner">⚠️ GEOFENCE BREACH: Asset Outside Boundary!</div>
 
     <div id="login-overlay">
         <div class="login-box">
@@ -45,12 +62,18 @@
         <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lat: <span id="lbl-lat">Awaiting signal...</span></p>
         <p style="margin:3px 0; font-size:12px; font-family:monospace;">Lon: <span id="lbl-lon">Awaiting signal...</span></p>
         <p style="margin:5px 0 0 0; font-size:10px; color:#7f8c8d; font-family:sans-serif;">Last Ping: <span id="lbl-time">...</span></p>
+        <p id="lbl-fence-status" style="margin:5px 0 0 0; font-size:11px; font-weight:bold; color:#7f8c8d;">Fence: Undefined</p>
     </div>
     <div id="map"></div>
 
     <script>
         const MASTER_PASSWORD = "12345"; 
         let map, trackerMarker = null;
+        let currentPos = null;
+
+        // Geofencing State Variables
+        let drawnItems;
+        let geofencePolygon = null; 
 
         const THINGSPEAK_CHANNEL_ID = "3386987"; 
         const READ_API_KEY = "5NBKQLUZFS2TV33Z";
@@ -74,61 +97,134 @@
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors'
             }).addTo(map);
+
+            // Initialize Draw Layer Group Container
+            drawnItems = new L.FeatureGroup();
+            map.addLayer(drawnItems);
+
+            // Configure Drawing Toolbar Options (Limiting strictly to Polygons/Shapes)
+            const drawControl = new L.Control.Draw({
+                edit: { featureGroup: drawnItems, remove: true },
+                draw: {
+                    polygon: { allowIntersection: false, showArea: true },
+                    polyline: false, circle: false, rectangle: true, marker: false, circlemarker: false
+                }
+            });
+            map.addControl(drawControl);
+
+            // Map Drawing Event Hook listeners
+            map.on(L.Draw.Event.CREATED, function (e) {
+                // Wipe any old geofence vectors if user draws a new one
+                drawnItems.clearLayers();
+                
+                const layer = e.layer;
+                drawnItems.addLayer(layer);
+                geofencePolygon = layer; 
+                
+                document.getElementById('lbl-fence-status').innerText = "Fence: Armed";
+                document.getElementById('lbl-fence-status').style.color = "#2980b9";
+                
+                // Immediately check status if location matrix already exists
+                if (currentPos) checkGeofence(currentPos[0], currentPos[1]);
+            });
+
+            map.on(L.Draw.Event.DELETED, function () {
+                geofencePolygon = null;
+                document.getElementById('lbl-fence-status').innerText = "Fence: Undefined";
+                document.getElementById('lbl-fence-status').style.color = "#7f8c8d";
+                dismissAlarm();
+            });
+        }
+
+        // Ray-Casting Polygon Containment Math Algorithm
+        function isPointInPolygon(lat, lon, polygon) {
+            const latlngs = polygon.getLatLngs()[0];
+            let inside = false;
+            
+            for (let i = 0, j = latlngs.length - 1; i < latlngs.length; j = i++) {
+                const xi = latlngs[i].lat, yi = latlngs[i].lng;
+                const xj = latlngs[j].lat, yj = latlngs[j].lng;
+                
+                const intersect = ((yi > lon) !== (yj > lon))
+                    && (lat < (xj - xi) * (lon - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        function triggerAlarm() {
+            document.getElementById('alarm-banner').style.top = "20px";
+            document.getElementById('lbl-fence-status').innerText = "Fence: BREACHED";
+            document.getElementById('lbl-fence-status').style.color = "#e74c3c";
+        }
+
+        function dismissAlarm() {
+            document.getElementById('alarm-banner').style.top = "-100px";
+            if (geofencePolygon) {
+                document.getElementById('lbl-fence-status').innerText = "Fence: Safe";
+                document.getElementById('lbl-fence-status').style.color = "#27ae60";
+            }
+        }
+
+        function checkGeofence(lat, lon) {
+            if (!geofencePolygon) return;
+            
+            const isInside = isPointInPolygon(lat, lon, geofencePolygon);
+            if (!isInside) {
+                triggerAlarm();
+            } else {
+                dismissAlarm();
+            }
         }
 
         async function fetchLocation() {
             try {
                 const res = await fetch(`https://api.thingspeak.com/channels/${THINGSPEAK_CHANNEL_ID}/feeds.json?api_key=${READ_API_KEY}&results=1`);
-                
                 if (!res.ok) throw new Error(`ThingSpeak response error: ${res.status}`);
 
                 const data = await res.json();
                 
                 if (data && data.feeds && data.feeds.length > 0) {
                     const latestFeed = data.feeds[0];
-                    
                     const lat = parseFloat(latestFeed.field1);
                     const lon = parseFloat(latestFeed.field2);
                     
-                    // 1. Parse packet timestamp and compare against current execution time
                     const timestamp = new Date(latestFeed.created_at);
                     const currentTime = new Date();
                     const ageInSeconds = Math.floor((currentTime - timestamp) / 1000);
 
-                    console.log(`Telemetry data age: ${ageInSeconds} seconds`);
-
-                    // 2. Evaluate 1-minute expiration logic guard
                     if (ageInSeconds < 60 && !isNaN(lat) && !isNaN(lon)) {
-                        // Data is fresh -> Render or update marker
+                        currentPos = [lat, lon];
+                        
                         document.getElementById('lbl-lat').innerText = lat.toFixed(6);
                         document.getElementById('lbl-lon').innerText = lon.toFixed(6);
                         document.getElementById('lbl-time').innerText = timestamp.toLocaleTimeString();
                         document.getElementById('telemetry-status').innerText = "Asset: Active Tracker";
                         document.getElementById('telemetry-status').style.color = "#27ae60";
 
-                        const pos = [lat, lon];
                         if (!trackerMarker) {
-                            trackerMarker = L.marker(pos).addTo(map);
-                            map.setView(pos, 16); 
+                            trackerMarker = L.marker(currentPos).addTo(map);
+                            map.setView(currentPos, 16); 
                         } else {
-                            // If the marker was previously purged, re-append it back onto the view canvas
-                            if (!map.hasLayer(trackerMarker)) {
-                                trackerMarker.addTo(map);
-                            }
-                            trackerMarker.setLatLng(pos);
-                            map.panTo(pos); 
+                            if (!map.hasLayer(trackerMarker)) trackerMarker.addTo(map);
+                            trackerMarker.setLatLng(currentPos);
                         }
+
+                        // Run containment evaluation routine against the shape array parameters
+                        checkGeofence(lat, lon);
+
                     } else {
-                        // Data is stale or malformed -> Wipe pin off map cleanly
+                        // Data is stale -> Wipe pin off map canvas cleanly
                         if (trackerMarker && map.hasLayer(trackerMarker)) {
                             map.removeLayer(trackerMarker);
                         }
-                        
+                        currentPos = null;
                         document.getElementById('lbl-lat').innerText = "Offline";
                         document.getElementById('lbl-lon').innerText = "Offline";
                         document.getElementById('lbl-time').innerText = timestamp.toLocaleTimeString() + " (Stale)";
                         document.getElementById('telemetry-status').innerText = "Asset: Signal Lost";
                         document.getElementById('telemetry-status').style.color = "#e74c3c";
+                        dismissAlarm();
                     }
                 }
             } catch (err) {
