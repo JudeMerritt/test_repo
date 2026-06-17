@@ -30,8 +30,7 @@
         
         /* Top Navigation Buttons */
         .nav-button { position: absolute; right: 20px; z-index: 1000; display: none; padding: 10px 20px; border: none; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        #btn-historical { background: #3498db; top: 20px; }
-        #csv-upload-btn { background: #8e44ad; top: 65px; }
+        #csv-upload-btn { background: #8e44ad; top: 20px; }
 
         /* Telemetry Container */
         #telemetry-container {
@@ -81,10 +80,8 @@
         </div>
     </div>
 
-    <button id="btn-historical" class="nav-button" onclick="window.location.href='historical_analysis.html'">View Server Historical Analysis</button>
-    
     <input type="file" id="csv-file-input" accept=".csv" style="display: none;" onchange="processLocalCSV(event)">
-    <button id="csv-upload-btn" class="nav-button">Upload Local CSV</button>
+    <button id="csv-upload-btn" class="nav-button">Upload Local CSV Feed</button>
 
     <div id="telemetry-container"></div>
     <div id="map"></div>
@@ -105,8 +102,8 @@
 
         // Define Multiple Webhook Channels
         const ASSETS = [
-            { id: "3386987", key: "5NBKQLUZFS2TV33Z", name: "Vehicle 1" },
-            { id: "0000000", key: "DEMO_KEY_HERE", name: "Vehicle 2" } // Add more assets here
+            { id: "3386987", key: "5NBKQLUZFS2TV33Z", name: "Alpha Craft" },
+            { id: "0000000", key: "DEMO_KEY_HERE", name: "Beta Craft" } // Add more assets here
         ];
 
         let markers = {};
@@ -119,7 +116,6 @@
                 document.getElementById('login-overlay').style.display = 'none';
                 document.getElementById('map').style.display = 'block';
                 document.getElementById('telemetry-container').style.display = 'flex';
-                document.getElementById('btn-historical').style.display = 'block';
                 document.getElementById('csv-upload-btn').style.display = 'block';
                 
                 initTelemetryUI();
@@ -377,14 +373,18 @@
             let prevRow = null;
 
             data.forEach((row, index) => {
-                if (row.x_coord == null || row.y_coord == null || !row.timestamp) return;
+                // Compatible with ThingSpeak Feed format (field1 = lat, field2 = lon, created_at)
+                if (row.field1 == null || row.field2 == null || !row.created_at) return;
 
+                let lat = parseFloat(row.field1);
+                let lon = parseFloat(row.field2);
                 let currentSpeed = 0;
-                let currentTime = new Date(row.timestamp).getTime() / 1000; 
+                let currentTime = new Date(row.created_at).getTime() / 1000; 
 
                 if (prevRow !== null) {
-                    let dx = row.x_coord - prevRow.x_coord;
-                    let dy = row.y_coord - prevRow.y_coord;
+                    // Convert Geographic Coordinates (degrees) to distance (meters) using Equirectangular approximation
+                    let dx = (lon - prevRow.lon) * 111320 * Math.cos((lat + prevRow.lat) / 2 * Math.PI / 180);
+                    let dy = (lat - prevRow.lat) * 111320;
                     let distance = Math.sqrt(dx * dx + dy * dy);
                     let dt = currentTime - prevRow.timeSeconds;
                     
@@ -395,13 +395,13 @@
 
                 if (index === 0 || currentSpeed <= MAX_SPEED) {
                     filteredData.push({
-                        timestamp: row.timestamp,
+                        timestamp: row.created_at,
                         timeSeconds: currentTime,
-                        x: row.x_coord,
-                        y: row.y_coord,
+                        lat: lat,
+                        lon: lon,
                         speed: currentSpeed
                     });
-                    prevRow = { x_coord: row.x_coord, y_coord: row.y_coord, timeSeconds: currentTime };
+                    prevRow = { lat: lat, lon: lon, timeSeconds: currentTime };
                 }
             });
 
@@ -414,9 +414,9 @@
         }
 
         function renderPlotlyGraph(data) {
-            const xCoords = data.map(d => d.x);
-            const yCoords = data.map(d => d.y);
-            const hoverText = data.map(d => `Time: ${d.timestamp}<br>Speed: ${d.speed.toFixed(2)} m/s`);
+            const xCoords = data.map(d => d.lon);
+            const yCoords = data.map(d => d.lat);
+            const hoverText = data.map(d => `Time: ${new Date(d.timestamp).toLocaleString()}<br>Speed: ${d.speed.toFixed(2)} m/s`);
 
             const routeTrace = {
                 x: xCoords,
@@ -430,8 +430,8 @@
 
             const layout = {
                 title: "Watersports Vehicle Tracker (Local Memory)",
-                xaxis: { title: "West/East (m)", zeroline: true, zerolinecolor: 'black', gridcolor: 'lightgrey' },
-                yaxis: { title: "South/North (m)", zeroline: true, zerolinecolor: 'black', gridcolor: 'lightgrey', scaleanchor: "x", scaleratio: 1 },
+                xaxis: { title: "Longitude", zeroline: true, zerolinecolor: 'black', gridcolor: 'lightgrey' },
+                yaxis: { title: "Latitude", zeroline: true, zerolinecolor: 'black', gridcolor: 'lightgrey', scaleanchor: "x", scaleratio: 1 },
                 hovermode: 'closest'
             };
 
